@@ -50,21 +50,19 @@
     background-repeat:no-repeat;
   }
   select.sig option{ background:var(--panel); color:var(--text); font-size:17px; }
-  .toggle{ display:flex; align-items:center; justify-content:space-between; cursor:pointer; }
-  .toggle .state{ font-size:24px; font-weight:700; }
-  .toggle.off .state{ color:var(--muted); }
-  .switch{ width:46px; height:27px; border-radius:99px; background:var(--panel-2); position:relative; transition:background .15s; flex:0 0 auto; }
-  .toggle.on .switch{ background:var(--accent); }
-  .switch::after{ content:""; position:absolute; top:3px; left:3px; width:21px; height:21px; border-radius:50%;
-                  background:#fff; transition:transform .15s; }
-  .toggle.on .switch::after{ transform:translateX(19px); }
+  select.sig.acc{ font-size:18px; padding-top:5px; }
 
-  /* beat dots */
-  .dots{ display:flex; flex-wrap:wrap; gap:8px; justify-content:center; min-height:18px; padding:2px 0; }
-  .dot{ width:14px; height:14px; border-radius:50%; background:var(--panel-2); border:1px solid var(--line);
+  /* beat dots: idle classes show the accent grouping; .now = current beat */
+  .dots{ display:flex; flex-wrap:wrap; gap:8px; justify-content:center; align-items:center; min-height:18px; padding:2px 0; }
+  .dot{ width:13px; height:13px; border-radius:50%; background:var(--panel-2); border:1px solid var(--line);
         transition:transform .05s, background .05s, box-shadow .05s; }
-  .dot.beat{ background:var(--beat); box-shadow:0 0 12px var(--beat); transform:scale(1.18); }
-  .dot.accent{ background:var(--accent); box-shadow:0 0 14px var(--accent); transform:scale(1.32); }
+  .dot.lvl1{ border-color:var(--accent-soft); }                 /* group start */
+  .dot.lvl2{ border-color:var(--accent); background:#2a1c19; }  /* downbeat */
+  .dot.grp{ margin-left:15px; }                                 /* gap before a new group */
+  .dot.now{ transform:scale(1.25); }
+  .dot.now.lvl0{ background:var(--beat); box-shadow:0 0 12px var(--beat); }
+  .dot.now.lvl1{ background:var(--accent-soft); box-shadow:0 0 13px var(--accent-soft); transform:scale(1.34); }
+  .dot.now.lvl2{ background:var(--accent); box-shadow:0 0 15px var(--accent); transform:scale(1.42); }
 
   /* tempo dial */
   .dialwrap{ position:relative; width:280px; max-width:78vw; aspect-ratio:1/1; margin:2px auto; touch-action:none; }
@@ -132,12 +130,9 @@
         <label for="sig">Time signature</label>
         <select id="sig" class="sig" aria-label="Time signature"></select>
       </div>
-      <div class="field toggle on" id="accent" role="switch" aria-checked="true" tabindex="0">
-        <div>
-          <label>Accent</label>
-          <div class="state">On</div>
-        </div>
-        <div class="switch"></div>
+      <div class="field">
+        <label for="accent">Accent</label>
+        <select id="accent" class="sig acc" aria-label="Accent"></select>
       </div>
     </div>
 
@@ -187,15 +182,28 @@
 
   // ---- data ----------------------------------------------------------------
   // beats = number of primary clicks per bar (also the number of beat dots).
-  // The displayed BPM is the rate of those primary clicks. The "♩." entries are
-  // compound meters counted in their dotted-quarter pulse (6/8 felt in 2, etc.).
+  // accents = the accent options for that meter (matches the original app):
+  //   "Off" = all beats equal; "On" = accent the downbeat only;
+  //   "a+b+c" = group the bar a|b|c and accent the first beat of each group
+  //   (the downbeat gets the strongest tier, other group-starts a middle tier).
+  // The "♩." entries are the compound meters shown grouped, with a fixed grouping.
   var TIME_SIGS = [
-    {label:"2/4", beats:2},  {label:"3/4", beats:3},  {label:"4/4", beats:4},
-    {label:"5/4", beats:5},  {label:"5/8", beats:5},  {label:"6/8", beats:6},
-    {label:"6/8 ♩.", beats:2}, {label:"7/8", beats:7}, {label:"8/8", beats:8},
-    {label:"9/8", beats:9},  {label:"9/8 ♩.", beats:3}, {label:"10/8", beats:10},
-    {label:"11/8", beats:11}, {label:"12/8", beats:12}, {label:"12/8 ♩.", beats:4},
-    {label:"13/8", beats:13}
+    {label:"2/4", beats:2,  accents:["Off","On"]},
+    {label:"3/4", beats:3,  accents:["Off","On"]},
+    {label:"4/4", beats:4,  accents:["Off","On"]},
+    {label:"5/4", beats:5,  accents:["Off","On","3+2","2+3"]},
+    {label:"5/8", beats:5,  accents:["Off","On","3+2","2+3"]},
+    {label:"6/8", beats:6,  accents:["Off","On","3+3","2+2+2"]},
+    {label:"6/8 ♩.", beats:6, accents:["Off","3+3"]},
+    {label:"7/8", beats:7,  accents:["Off","On","3+4","4+3","3+2+2","2+2+3"]},
+    {label:"8/8", beats:8,  accents:["Off","On","3+3+2"]},
+    {label:"9/8", beats:9,  accents:["Off","On","3+3+3","4+3+2","3+4+2","4+5","4+2+3"]},
+    {label:"9/8 ♩.", beats:9, accents:["Off","3+3+3"]},
+    {label:"10/8", beats:10, accents:["Off","On","3+3+2+2","2+2+3+3"]},
+    {label:"11/8", beats:11, accents:["Off","On","3+3+3+2","4+4+3","2+2+3+4"]},
+    {label:"12/8", beats:12, accents:["Off","On","3+3+3+3","3+3+2+2+2","3+2+3+2+2","3+2+3+4"]},
+    {label:"12/8 ♩.", beats:12, accents:["Off","3+3+3+3"]},
+    {label:"13/8", beats:13, accents:["Off","On","3+3+3+2+2","4+4+3+2","4+3+4+2","3+4+2+4"]}
   ];
   var SUBS = [
     {n:1, name:"Quarter"}, {n:2, name:"Eighths"}, {n:3, name:"Triplet"}, {n:4, name:"Sixteenths"}
@@ -205,7 +213,8 @@
                [120,"Allegro"],[168,"Vivace"],[200,"Presto"],[1e9,"Prestissimo"]];
 
   // ---- state ---------------------------------------------------------------
-  var bpm = 120, tsIndex = 2, sub = 1, accentOn = true, volume = 0.9, playing = false;
+  var bpm = 120, tsIndex = 2, sub = 1, accIndex = 1, volume = 0.9, playing = false;
+  var levels = []; // accent tier per beat for the current meter+accent: 0 normal, 1 group-start, 2 downbeat
 
   // ---- elements ------------------------------------------------------------
   var $ = function(id){ return document.getElementById(id); };
@@ -251,13 +260,14 @@
   function scheduleTick(tick, time){
     var isMain = (tick % sub) === 0;
     var beatIndex = Math.floor(tick / sub);
-    var isDown = (beatIndex === 0) && isMain;
     if(isMain){
-      if(isDown && accentOn) click(time, 1600, 1.0, 0.05);
-      else                   click(time, 1100, 0.7, 0.045);
-      queue.push({beat:beatIndex, time:time, accent:isDown && accentOn});
+      var lvl = levels[beatIndex] || 0;
+      if(lvl === 2)      click(time, 1600, 1.00, 0.050); // downbeat
+      else if(lvl === 1) click(time, 1300, 0.85, 0.048); // group start
+      else               click(time, 1100, 0.70, 0.045); // normal beat
+      queue.push({beat:beatIndex, time:time});
     } else {
-      click(time, 850, 0.32, 0.028);
+      click(time, 850, 0.32, 0.028); // subdivision
     }
   }
   function scheduler(){
@@ -304,28 +314,30 @@
     var now = audioCtx.currentTime;
     while(queue.length && queue[0].time <= now){
       var ev = queue.shift();
-      lightDot(ev.beat, ev.accent);
+      lightDot(ev.beat);
       counterEl.textContent = String(ev.beat + 1);
     }
     rafId = requestAnimationFrame(draw);
   }
   function buildDots(){
-    var n = TIME_SIGS[tsIndex].beats;
+    computeLevels();
     dotsEl.innerHTML = "";
-    for(var i=0;i<n;i++){
+    for(var i=0;i<levels.length;i++){
       var d = document.createElement("div");
-      d.className = "dot";
+      var cls = "dot lvl" + levels[i];
+      if(levels[i] === 1) cls += " grp"; // group start (not the downbeat) gets a leading gap
+      d.className = cls;
       dotsEl.appendChild(d);
     }
   }
-  function lightDot(i, accent){
+  function lightDot(i){
     var kids = dotsEl.children;
-    for(var k=0;k<kids.length;k++) kids[k].className = "dot";
-    if(kids[i]) kids[i].className = "dot " + (accent ? "accent" : "beat");
+    for(var k=0;k<kids.length;k++) kids[k].classList.remove("now");
+    if(kids[i]) kids[i].classList.add("now");
   }
   function clearDots(){
     var kids = dotsEl.children;
-    for(var k=0;k<kids.length;k++) kids[k].className = "dot";
+    for(var k=0;k<kids.length;k++) kids[k].classList.remove("now");
   }
 
   // ---- tempo dial ----------------------------------------------------------
@@ -448,19 +460,56 @@
     });
     sigEl.value = String(tsIndex);
   }
+  function curMeter(){ return TIME_SIGS[tsIndex]; }
+  function accentGroups(name, beats){
+    if(name === "Off") return null;    // no accents (all beats equal)
+    if(name === "On")  return [beats]; // one group spanning the bar = downbeat only
+    var g = [], parts = name.split("+");
+    for(var i=0;i<parts.length;i++) g.push(parseInt(parts[i],10));
+    return g;
+  }
+  function computeLevels(){
+    var m = curMeter();
+    var name = m.accents[accIndex] || m.accents[0];
+    var groups = accentGroups(name, m.beats);
+    levels = [];
+    for(var i=0;i<m.beats;i++) levels.push(0);
+    if(groups){
+      var pos = 0;
+      for(var g=0; g<groups.length; g++){
+        if(pos < levels.length) levels[pos] = (g === 0) ? 2 : 1; // downbeat vs group start
+        pos += groups[g];
+      }
+    }
+  }
+  function defaultAccent(i){
+    // the original defaults to the first non-Off option ("On", or the grouping for ♩. meters)
+    return (TIME_SIGS[i].accents.length > 1) ? 1 : 0;
+  }
+  function buildAccent(){
+    var m = curMeter();
+    if(accIndex < 0 || accIndex >= m.accents.length) accIndex = defaultAccent(tsIndex);
+    accentEl.innerHTML = "";
+    m.accents.forEach(function(name, i){
+      var o = document.createElement("option");
+      o.value = String(i); o.textContent = name;
+      accentEl.appendChild(o);
+    });
+    accentEl.value = String(accIndex);
+  }
   function setSig(i){
     tsIndex = i;
     sigEl.value = String(i);
-    buildDots();
+    accIndex = defaultAccent(i);  // reset accent to this meter's default
+    buildAccent();
+    buildDots();                  // recomputes levels for the new meter
     if(playing){ currentTick = 0; queue.length = 0; } // realign to downbeat + drop stale display events
     save();
   }
-  function setAccent(on){
-    accentOn = on;
-    accentEl.classList.toggle("on", on);
-    accentEl.classList.toggle("off", !on);
-    accentEl.setAttribute("aria-checked", on ? "true" : "false");
-    accentEl.querySelector(".state").textContent = on ? "On" : "Off";
+  function setAccentIndex(i){
+    accIndex = i;
+    accentEl.value = String(i);
+    buildDots();                  // recompute levels + redraw the grouping
     save();
   }
 
@@ -492,7 +541,7 @@
   // ---- persistence ---------------------------------------------------------
   function save(){
     try{
-      localStorage.setItem("metro", JSON.stringify({bpm:bpm, ts:tsIndex, sub:sub, accent:accentOn, vol:volume}));
+      localStorage.setItem("metro", JSON.stringify({bpm:bpm, ts:tsIndex, sub:sub, acc:accIndex, vol:volume}));
     }catch(e){}
   }
   function load(){
@@ -502,7 +551,7 @@
       if(typeof s.bpm === "number") bpm = s.bpm;
       if(typeof s.ts === "number" && s.ts>=0 && s.ts<TIME_SIGS.length) tsIndex = s.ts;
       if(typeof s.sub === "number") sub = s.sub;
-      if(typeof s.accent === "boolean") accentOn = s.accent;
+      if(typeof s.acc === "number") accIndex = s.acc;
       if(typeof s.vol === "number") volume = s.vol;
     }
     // URL params override saved state (so deep-links work)
@@ -516,15 +565,20 @@
       var pn = parseInt(q.get("pattern"),10);
       if(!isNaN(pn) && pn>=1 && pn<=4) sub = pn;
     }
+    if(q.has("accent")){
+      var an = parseInt(q.get("accent"),10);
+      if(!isNaN(an) && an>=0) accIndex = an;
+    }
     bpm = Math.max(MIN_BPM, Math.min(MAX_BPM, bpm));
+    // clamp accent to whatever this meter actually offers
+    if(accIndex < 0 || accIndex >= TIME_SIGS[tsIndex].accents.length) accIndex = defaultAccent(tsIndex);
   }
 
   // ---- events --------------------------------------------------------------
   playEl.addEventListener("click", function(){ ensureAudio(); toggle(); });
   tapEl.addEventListener("click", function(){ ensureAudio(); tapTempo(); });
   sigEl.addEventListener("change", function(){ setSig(parseInt(sigEl.value,10)); });
-  accentEl.addEventListener("click", function(){ setAccent(!accentOn); });
-  accentEl.addEventListener("keydown", function(e){ if(e.key===" "||e.key==="Enter"){ e.preventDefault(); setAccent(!accentOn); } });
+  accentEl.addEventListener("change", function(){ setAccentIndex(parseInt(accentEl.value,10)); });
 
   $("minus").addEventListener("click", function(e){ e.stopPropagation(); setBpm(bpm-1); });
   $("plus").addEventListener("click", function(e){ e.stopPropagation(); setBpm(bpm+1); });
@@ -557,9 +611,9 @@
   // ---- init ----------------------------------------------------------------
   load();
   buildSig();
+  buildAccent();
   buildSubs();
   buildDots();
-  setAccent(accentOn);
   setSub(sub);
   bpmEl.value = String(bpm);
   termEl.textContent = tempoTerm(bpm);

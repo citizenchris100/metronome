@@ -8,7 +8,9 @@ A clean, fully-offline metronome you can install to your phone or iPad home scre
 - Tempo dial (20–300 BPM) with tap tempo, ±1 nudges, and direct entry
 - 16 time signatures, including compound meters felt in their dotted-quarter pulse
   (`6/8 ♩.`, `9/8 ♩.`, `12/8 ♩.`)
-- Accent on/off (downbeat), beat-dot indicator, and a live beat counter
+- Meter-aware accents: off, downbeat-only, or metric grouping presets per meter
+  (e.g. 7/8 as 3+2+2, 2+2+3, 4+3, …) with a 3-tier click (downbeat ▸ group ▸ beat)
+- Beat-dot indicator that shows the grouping, plus a live beat counter
 - Subdivisions: quarter, eighths, triplet, sixteenths
 - Sample-accurate timing via a Web Audio lookahead scheduler (synthesized clicks —
   no audio files, so it works with zero network)

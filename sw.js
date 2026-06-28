@@ -1,6 +1,6 @@
 // Bump this version string whenever index.html or an asset changes,
 // so installed clients pick up the new files.
-const CACHE = "metro-v2";
+const CACHE = "metro-v3";
 
 const ASSETS = [
   "./",
