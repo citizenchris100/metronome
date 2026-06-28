@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Metronome</title>
+<meta name="description" content="A clean, offline metronome.">
+<meta name="theme-color" content="#15171c">
+
+<!-- PWA / iOS home-screen install -->
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Metronome">
+
+<style>
+  :root{
+    --bg:#15171c; --panel:#1b1e25; --panel-2:#222631;
+    --text:#e9ecf1; --muted:#8b93a3; --line:#2c313c;
+    --accent:#ff5a3c; --accent-soft:#ff7a60; --beat:#5aa9ff; --good:#43d39e;
+    --radius:16px;
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ height:100%; }
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    display:flex; flex-direction:column; align-items:center;
+    min-height:100dvh;
+    padding:max(env(safe-area-inset-top),12px) 16px calc(env(safe-area-inset-bottom) + 16px);
+    -webkit-user-select:none; user-select:none; overflow-x:hidden;
+  }
+  .app{ width:100%; max-width:480px; display:flex; flex-direction:column; gap:18px; }
+
+  h1{ font-size:15px; letter-spacing:.22em; text-transform:uppercase; color:var(--muted);
+      font-weight:700; text-align:center; margin:6px 0 0; }
+
+  /* top controls: time signature + accent */
+  .top{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .field{ background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+          padding:12px 14px; display:flex; flex-direction:column; gap:6px; }
+  .field label{ font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); }
+  select.sig{
+    -webkit-appearance:none; appearance:none; background:transparent; border:0; color:var(--text);
+    font-size:24px; font-weight:700; padding:0 18px 0 0; margin:0; width:100%; outline:none;
+    background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);
+    background-position:calc(100% - 8px) 12px,calc(100% - 3px) 12px; background-size:5px 5px,5px 5px;
+    background-repeat:no-repeat;
+  }
+  select.sig option{ background:var(--panel); color:var(--text); font-size:17px; }
+  .toggle{ display:flex; align-items:center; justify-content:space-between; cursor:pointer; }
+  .toggle .state{ font-size:24px; font-weight:700; }
+  .toggle.off .state{ color:var(--muted); }
+  .switch{ width:46px; height:27px; border-radius:99px; background:var(--panel-2); position:relative; transition:background .15s; flex:0 0 auto; }
+  .toggle.on .switch{ background:var(--accent); }
+  .switch::after{ content:""; position:absolute; top:3px; left:3px; width:21px; height:21px; border-radius:50%;
+                  background:#fff; transition:transform .15s; }
+  .toggle.on .switch::after{ transform:translateX(19px); }
+
+  /* beat dots */
+  .dots{ display:flex; flex-wrap:wrap; gap:8px; justify-content:center; min-height:18px; padding:2px 0; }
+  .dot{ width:14px; height:14px; border-radius:50%; background:var(--panel-2); border:1px solid var(--line);
+        transition:transform .05s, background .05s, box-shadow .05s; }
+  .dot.beat{ background:var(--beat); box-shadow:0 0 12px var(--beat); transform:scale(1.18); }
+  .dot.accent{ background:var(--accent); box-shadow:0 0 14px var(--accent); transform:scale(1.32); }
+
+  /* tempo dial */
+  .dialwrap{ position:relative; width:280px; max-width:78vw; aspect-ratio:1/1; margin:2px auto; touch-action:none; }
+  .dialwrap svg{ width:100%; height:100%; display:block; }
+  .dial-center{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; pointer-events:none; }
+  #bpm{
+    -webkit-appearance:none; appearance:none; background:transparent; border:0; color:var(--text);
+    font-size:84px; font-weight:800; width:170px; text-align:center; line-height:1; padding:0; margin:0;
+    pointer-events:auto; outline:none; font-variant-numeric:tabular-nums;
+  }
+  #bpm::-webkit-outer-spin-button,#bpm::-webkit-inner-spin-button{ -webkit-appearance:none; margin:0; }
+  .bpm-label{ font-size:12px; letter-spacing:.22em; text-transform:uppercase; color:var(--muted); margin-top:2px; }
+  .tempo-term{ font-size:13px; color:var(--accent-soft); margin-top:6px; height:16px; }
+
+  .nudge{ position:absolute; top:50%; transform:translateY(-50%); width:44px; height:44px; border-radius:50%;
+          background:var(--panel); border:1px solid var(--line); color:var(--text); font-size:26px; line-height:1;
+          display:flex; align-items:center; justify-content:center; cursor:pointer; pointer-events:auto; }
+  .nudge:active{ background:var(--panel-2); }
+  .nudge.minus{ left:-6px; } .nudge.plus{ right:-6px; }
+
+  /* transport row */
+  .transport{ display:flex; align-items:center; justify-content:space-between; gap:14px; }
+  .btn{ background:var(--panel); border:1px solid var(--line); color:var(--text); border-radius:var(--radius);
+        font-size:15px; font-weight:700; letter-spacing:.08em; padding:0 18px; height:56px; cursor:pointer;
+        display:flex; align-items:center; justify-content:center; }
+  .btn:active{ background:var(--panel-2); }
+  .tap{ min-width:96px; text-transform:uppercase; }
+  .tap .small{ display:block; font-size:10px; color:var(--muted); letter-spacing:.1em; margin-top:2px; }
+  .play{ width:84px; height:84px; border-radius:50%; background:var(--accent); border:0; color:#fff;
+         display:flex; align-items:center; justify-content:center; cursor:pointer; flex:0 0 auto;
+         box-shadow:0 6px 20px rgba(255,90,60,.35); }
+  .play:active{ transform:scale(.96); }
+  .play svg{ width:34px; height:34px; }
+  .counter{ min-width:96px; text-align:center; font-size:30px; font-weight:800; color:var(--muted); font-variant-numeric:tabular-nums; }
+  .counter.live{ color:var(--text); }
+
+  /* subdivisions */
+  .subs{ display:flex; gap:8px; justify-content:center; }
+  .sub{ flex:1; max-width:84px; height:54px; background:var(--panel); border:1px solid var(--line); border-radius:12px;
+        color:var(--muted); display:flex; align-items:center; justify-content:center; cursor:pointer; }
+  .sub.active{ color:var(--text); border-color:var(--accent); background:var(--panel-2); }
+  .section-label{ font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); text-align:center; margin-bottom:-6px; }
+
+  /* volume */
+  .vol{ display:flex; align-items:center; gap:12px; padding:0 4px; }
+  .vol svg{ width:20px; height:20px; color:var(--muted); flex:0 0 auto; }
+  input[type=range]{ -webkit-appearance:none; appearance:none; width:100%; height:6px; border-radius:99px;
+        background:var(--panel-2); outline:none; }
+  input[type=range]::-webkit-slider-thumb{ -webkit-appearance:none; width:22px; height:22px; border-radius:50%;
+        background:var(--accent); cursor:pointer; }
+  input[type=range]::-moz-range-thumb{ width:22px; height:22px; border:0; border-radius:50%; background:var(--accent); }
+
+  .foot{ text-align:center; color:var(--muted); font-size:12px; line-height:1.5; }
+  .install{ display:none; background:var(--panel); border:1px solid var(--line); border-radius:12px;
+            padding:10px 14px; font-size:13px; color:var(--text); text-align:center; }
+  .install b{ color:var(--accent-soft); }
+</style>
+</head>
+<body>
+  <div class="app">
+    <h1>Metronome</h1>
+
+    <div class="top">
+      <div class="field">
+        <label for="sig">Time signature</label>
+        <select id="sig" class="sig" aria-label="Time signature"></select>
+      </div>
+      <div class="field toggle on" id="accent" role="switch" aria-checked="true" tabindex="0">
+        <div>
+          <label>Accent</label>
+          <div class="state">On</div>
+        </div>
+        <div class="switch"></div>
+      </div>
+    </div>
+
+    <div class="dots" id="dots" aria-hidden="true"></div>
+
+    <div class="dialwrap" id="dialwrap">
+      <svg viewBox="0 0 200 200" aria-hidden="true">
+        <path id="track" fill="none" stroke="#2c313c" stroke-width="10" stroke-linecap="round"/>
+        <path id="value" fill="none" stroke="url(#g)" stroke-width="10" stroke-linecap="round"/>
+        <circle id="handle" r="11" fill="#fff" stroke="#ff5a3c" stroke-width="4"/>
+        <defs>
+          <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#ff7a60"/><stop offset="1" stop-color="#ff5a3c"/>
+          </linearGradient>
+        </defs>
+      </svg>
+      <button class="nudge minus" id="minus" aria-label="Decrease tempo">&minus;</button>
+      <button class="nudge plus" id="plus" aria-label="Increase tempo">+</button>
+      <div class="dial-center">
+        <input id="bpm" type="number" inputmode="numeric" value="120" min="20" max="300" aria-label="Beats per minute">
+        <div class="bpm-label">BPM</div>
+        <div class="tempo-term" id="term"></div>
+      </div>
+    </div>
+
+    <div class="transport">
+      <button class="btn tap" id="tap">Tap<span class="small">tempo</span></button>
+      <button class="play" id="play" aria-label="Start"></button>
+      <div class="counter" id="counter">1</div>
+    </div>
+
+    <div class="section-label">Subdivision</div>
+    <div class="subs" id="subs"></div>
+
+    <div class="vol">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a9 9 0 0 1 0 14"/></svg>
+      <input type="range" id="vol" min="0" max="100" value="90" aria-label="Volume">
+    </div>
+
+    <div class="install" id="install">Install: tap <b>Share</b> then <b>Add to Home Screen</b>.</div>
+    <div class="foot">Works fully offline. Settings are saved on this device.</div>
+  </div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---- data ----------------------------------------------------------------
+  // beats = number of primary clicks per bar (also the number of beat dots).
+  // The displayed BPM is the rate of those primary clicks. The "♩." entries are
+  // compound meters counted in their dotted-quarter pulse (6/8 felt in 2, etc.).
+  var TIME_SIGS = [
+    {label:"2/4", beats:2},  {label:"3/4", beats:3},  {label:"4/4", beats:4},
+    {label:"5/4", beats:5},  {label:"5/8", beats:5},  {label:"6/8", beats:6},
+    {label:"6/8 ♩.", beats:2}, {label:"7/8", beats:7}, {label:"8/8", beats:8},
+    {label:"9/8", beats:9},  {label:"9/8 ♩.", beats:3}, {label:"10/8", beats:10},
+    {label:"11/8", beats:11}, {label:"12/8", beats:12}, {label:"12/8 ♩.", beats:4},
+    {label:"13/8", beats:13}
+  ];
+  var SUBS = [
+    {n:1, name:"Quarter"}, {n:2, name:"Eighths"}, {n:3, name:"Triplet"}, {n:4, name:"Sixteenths"}
+  ];
+  var MIN_BPM = 20, MAX_BPM = 300;
+  var TERMS = [[40,"Largo"],[60,"Larghetto"],[66,"Adagio"],[76,"Andante"],[108,"Moderato"],
+               [120,"Allegro"],[168,"Vivace"],[200,"Presto"],[1e9,"Prestissimo"]];
+
+  // ---- state ---------------------------------------------------------------
+  var bpm = 120, tsIndex = 2, sub = 1, accentOn = true, volume = 0.9, playing = false;
+
+  // ---- elements ------------------------------------------------------------
+  var $ = function(id){ return document.getElementById(id); };
+  var sigEl=$("sig"), accentEl=$("accent"), dotsEl=$("dots"),
+      bpmEl=$("bpm"), termEl=$("term"), counterEl=$("counter"),
+      playEl=$("play"), tapEl=$("tap"), subsEl=$("subs"), volEl=$("vol"),
+      dialWrap=$("dialwrap"), trackEl=$("track"), valueEl=$("value"), handleEl=$("handle"),
+      installEl=$("install");
+
+  var ICON_PLAY  = '<svg viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M7 5v14l12-7z"/></svg>';
+  var ICON_PAUSE = '<svg viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>';
+
+  // ---- audio: lookahead scheduler -----------------------------------------
+  var audioCtx=null, masterGain=null;
+  var currentTick=0, nextNoteTime=0, timerId=null, rafId=null;
+  var queue=[];
+  var LOOKAHEAD=25, SCHEDULE_AHEAD=0.12;
+
+  function ensureAudio(){
+    if(!audioCtx){
+      var AC = window.AudioContext || window.webkitAudioContext;
+      audioCtx = new AC();
+      masterGain = audioCtx.createGain();
+      masterGain.gain.value = volume;
+      masterGain.connect(audioCtx.destination);
+    }
+    if(audioCtx.state === "suspended"){ audioCtx.resume(); }
+  }
+  function ticksPerBar(){ return TIME_SIGS[tsIndex].beats * sub; }
+  function secondsPerTick(){ return (60 / bpm) / sub; }
+
+  function click(time, freq, gain, dur){
+    var osc = audioCtx.createOscillator();
+    var env = audioCtx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = freq;
+    env.gain.setValueAtTime(0.0001, time);
+    env.gain.linearRampToValueAtTime(gain, time + 0.002);
+    env.gain.exponentialRampToValueAtTime(0.0001, time + dur);
+    osc.connect(env); env.connect(masterGain);
+    osc.start(time); osc.stop(time + dur + 0.02);
+  }
+  function scheduleTick(tick, time){
+    var isMain = (tick % sub) === 0;
+    var beatIndex = Math.floor(tick / sub);
+    var isDown = (beatIndex === 0) && isMain;
+    if(isMain){
+      if(isDown && accentOn) click(time, 1600, 1.0, 0.05);
+      else                   click(time, 1100, 0.7, 0.045);
+      queue.push({beat:beatIndex, time:time, accent:isDown && accentOn});
+    } else {
+      click(time, 850, 0.32, 0.028);
+    }
+  }
+  function scheduler(){
+    while(nextNoteTime < audioCtx.currentTime + SCHEDULE_AHEAD){
+      scheduleTick(currentTick, nextNoteTime);
+      nextNoteTime += secondsPerTick();
+      currentTick++;
+      if(currentTick >= ticksPerBar()) currentTick = 0;
+    }
+    timerId = setTimeout(scheduler, LOOKAHEAD);
+  }
+
+  function start(){
+    ensureAudio();
+    if(playing) return;
+    playing = true;
+    currentTick = 0;
+    queue.length = 0;
+    nextNoteTime = audioCtx.currentTime + 0.06;
+    scheduler();
+    draw();
+    requestWakeLock();
+    playEl.innerHTML = ICON_PAUSE;
+    playEl.setAttribute("aria-label","Stop");
+    counterEl.classList.add("live");
+  }
+  function stop(){
+    playing = false;
+    if(timerId){ clearTimeout(timerId); timerId=null; }
+    if(rafId){ cancelAnimationFrame(rafId); rafId=null; }
+    queue.length = 0;
+    clearDots();
+    counterEl.textContent = "1";
+    counterEl.classList.remove("live");
+    releaseWakeLock();
+    playEl.innerHTML = ICON_PLAY;
+    playEl.setAttribute("aria-label","Start");
+  }
+  function toggle(){ playing ? stop() : start(); }
+
+  // ---- visual sync ---------------------------------------------------------
+  function draw(){
+    if(!playing) return;
+    var now = audioCtx.currentTime;
+    while(queue.length && queue[0].time <= now){
+      var ev = queue.shift();
+      lightDot(ev.beat, ev.accent);
+      counterEl.textContent = String(ev.beat + 1);
+    }
+    rafId = requestAnimationFrame(draw);
+  }
+  function buildDots(){
+    var n = TIME_SIGS[tsIndex].beats;
+    dotsEl.innerHTML = "";
+    for(var i=0;i<n;i++){
+      var d = document.createElement("div");
+      d.className = "dot";
+      dotsEl.appendChild(d);
+    }
+  }
+  function lightDot(i, accent){
+    var kids = dotsEl.children;
+    for(var k=0;k<kids.length;k++) kids[k].className = "dot";
+    if(kids[i]) kids[i].className = "dot " + (accent ? "accent" : "beat");
+  }
+  function clearDots(){
+    var kids = dotsEl.children;
+    for(var k=0;k<kids.length;k++) kids[k].className = "dot";
+  }
+
+  // ---- tempo dial ----------------------------------------------------------
+  var CX=100, CY=100, R=82, A0=-135, A1=135; // 270deg sweep, gap at the bottom
+  function polar(r, deg){
+    var t = deg * Math.PI/180;
+    return [CX + r*Math.sin(t), CY - r*Math.cos(t)];
+  }
+  function arcPath(r, from, to){
+    var a = polar(r, from), b = polar(r, to);
+    var large = (Math.abs(to-from) > 180) ? 1 : 0;
+    return "M "+a[0]+" "+a[1]+" A "+r+" "+r+" 0 "+large+" 1 "+b[0]+" "+b[1];
+  }
+  function bpmToAngle(v){ return A0 + ((v-MIN_BPM)/(MAX_BPM-MIN_BPM)) * (A1-A0); }
+  function updateDial(){
+    var ang = bpmToAngle(bpm);
+    valueEl.setAttribute("d", arcPath(R, A0, ang));
+    var h = polar(R, ang);
+    handleEl.setAttribute("cx", h[0]); handleEl.setAttribute("cy", h[1]);
+  }
+  function tempoTerm(v){
+    for(var i=0;i<TERMS.length;i++){ if(v <= TERMS[i][0]) return TERMS[i][1]; }
+    return "";
+  }
+  function setBpm(v, fromInput){
+    v = Math.round(v);
+    if(isNaN(v)) return;
+    if(v < MIN_BPM) v = MIN_BPM;
+    if(v > MAX_BPM) v = MAX_BPM;
+    bpm = v;
+    if(!fromInput) bpmEl.value = String(v);
+    termEl.textContent = tempoTerm(v);
+    updateDial();
+    save();
+  }
+
+  // dial drag (pointer events = mouse + touch)
+  var dragging = false;
+  function pointerToBpm(clientX, clientY){
+    var rect = dialWrap.getBoundingClientRect();
+    var cx = rect.left + rect.width/2, cy = rect.top + rect.height/2;
+    var dx = clientX - cx, dy = clientY - cy;
+    var theta = Math.atan2(dx, -dy) * 180/Math.PI; // 0 at top, clockwise positive
+    if(theta > A1){ theta = A1; }
+    else if(theta < A0){ theta = A0; }
+    var f = (theta - A0) / (A1 - A0);
+    return MIN_BPM + f * (MAX_BPM - MIN_BPM);
+  }
+  dialWrap.addEventListener("pointerdown", function(e){
+    if(e.target.id === "bpm" || e.target.classList.contains("nudge")) return;
+    dragging = true;
+    dialWrap.setPointerCapture(e.pointerId);
+    setBpm(pointerToBpm(e.clientX, e.clientY));
+    e.preventDefault();
+  });
+  dialWrap.addEventListener("pointermove", function(e){
+    if(dragging) setBpm(pointerToBpm(e.clientX, e.clientY));
+  });
+  function endDrag(){ dragging = false; }
+  dialWrap.addEventListener("pointerup", endDrag);
+  dialWrap.addEventListener("pointercancel", endDrag);
+
+  // ---- tap tempo -----------------------------------------------------------
+  var taps = [];
+  function tapTempo(){
+    var t = (window.performance && performance.now) ? performance.now() : Date.now();
+    taps = taps.filter(function(x){ return t - x < 2000; });
+    taps.push(t);
+    if(taps.length >= 2){
+      var sum = 0;
+      for(var i=1;i<taps.length;i++) sum += taps[i]-taps[i-1];
+      var avg = sum / (taps.length - 1);
+      setBpm(60000 / avg);
+    }
+  }
+
+  // ---- subdivisions UI -----------------------------------------------------
+  function subGlyph(n){
+    var W=48,H=30,pad=10,span=W-2*pad,stemTop=8,headY=23;
+    var xs = (n===1) ? [W/2] : [];
+    if(n>1){ for(var i=0;i<n;i++) xs.push(pad + span*i/(n-1)); }
+    var p = [];
+    if(n>1){
+      p.push('<rect x="'+xs[0]+'" y="'+stemTop+'" width="'+(xs[n-1]-xs[0])+'" height="3" fill="currentColor"/>');
+      if(n>=4) p.push('<rect x="'+xs[0]+'" y="'+(stemTop+4.6)+'" width="'+(xs[n-1]-xs[0])+'" height="3" fill="currentColor"/>');
+    }
+    for(var j=0;j<xs.length;j++){
+      p.push('<rect x="'+(xs[j]-0.9)+'" y="'+stemTop+'" width="1.8" height="'+(headY-stemTop)+'" fill="currentColor"/>');
+      p.push('<ellipse cx="'+xs[j]+'" cy="'+headY+'" rx="3.5" ry="2.6" fill="currentColor"/>');
+    }
+    if(n===3) p.push('<text x="'+(W/2)+'" y="6" text-anchor="middle" font-size="9" font-weight="700" fill="currentColor">3</text>');
+    return '<svg viewBox="0 0 '+W+' '+H+'" width="42" height="26" aria-hidden="true">'+p.join("")+'</svg>';
+  }
+  function buildSubs(){
+    subsEl.innerHTML = "";
+    SUBS.forEach(function(s){
+      var b = document.createElement("button");
+      b.className = "sub" + (s.n===sub ? " active" : "");
+      b.innerHTML = subGlyph(s.n);
+      b.title = s.name;
+      b.setAttribute("aria-label", s.name);
+      b.addEventListener("click", function(){ setSub(s.n); });
+      subsEl.appendChild(b);
+    });
+  }
+  function setSub(n){
+    sub = n;
+    var kids = subsEl.children;
+    for(var i=0;i<kids.length;i++) kids[i].classList.toggle("active", SUBS[i].n===n);
+    save();
+  }
+
+  // ---- time signature + accent --------------------------------------------
+  function buildSig(){
+    sigEl.innerHTML = "";
+    TIME_SIGS.forEach(function(ts, i){
+      var o = document.createElement("option");
+      o.value = String(i); o.textContent = ts.label;
+      sigEl.appendChild(o);
+    });
+    sigEl.value = String(tsIndex);
+  }
+  function setSig(i){
+    tsIndex = i;
+    sigEl.value = String(i);
+    buildDots();
+    if(playing){ currentTick = 0; queue.length = 0; } // realign to downbeat + drop stale display events
+    save();
+  }
+  function setAccent(on){
+    accentOn = on;
+    accentEl.classList.toggle("on", on);
+    accentEl.classList.toggle("off", !on);
+    accentEl.setAttribute("aria-checked", on ? "true" : "false");
+    accentEl.querySelector(".state").textContent = on ? "On" : "Off";
+    save();
+  }
+
+  // ---- wake lock (keep the screen awake while practising) ------------------
+  var wakeLock = null;
+  function requestWakeLock(){
+    try{
+      if("wakeLock" in navigator){
+        navigator.wakeLock.request("screen").then(function(w){ wakeLock = w; }).catch(function(){});
+      }
+    }catch(e){}
+  }
+  function releaseWakeLock(){
+    try{ if(wakeLock) wakeLock.release(); }catch(e){}
+    wakeLock = null;
+  }
+  document.addEventListener("visibilitychange", function(){
+    if(playing && document.visibilityState === "visible"){
+      ensureAudio(); // iOS suspends the AudioContext while backgrounded; resume it
+      if(audioCtx){
+        var now = audioCtx.currentTime;
+        while(queue.length && queue[0].time < now) queue.shift(); // drop stale display events
+        if(nextNoteTime < now) nextNoteTime = now + 0.06;          // realign the scheduler clock
+      }
+      requestWakeLock();
+    }
+  });
+
+  // ---- persistence ---------------------------------------------------------
+  function save(){
+    try{
+      localStorage.setItem("metro", JSON.stringify({bpm:bpm, ts:tsIndex, sub:sub, accent:accentOn, vol:volume}));
+    }catch(e){}
+  }
+  function load(){
+    var s = null;
+    try{ s = JSON.parse(localStorage.getItem("metro")); }catch(e){}
+    if(s){
+      if(typeof s.bpm === "number") bpm = s.bpm;
+      if(typeof s.ts === "number" && s.ts>=0 && s.ts<TIME_SIGS.length) tsIndex = s.ts;
+      if(typeof s.sub === "number") sub = s.sub;
+      if(typeof s.accent === "boolean") accentOn = s.accent;
+      if(typeof s.vol === "number") volume = s.vol;
+    }
+    // URL params override saved state (so deep-links work)
+    var q = new URLSearchParams(location.search);
+    if(q.has("tempo")) bpm = parseInt(q.get("tempo"),10) || bpm;
+    if(q.has("timeSignature")){
+      var ti = parseInt(q.get("timeSignature"),10);
+      if(!isNaN(ti) && ti>=0 && ti<TIME_SIGS.length) tsIndex = ti;
+    }
+    if(q.has("pattern")){
+      var pn = parseInt(q.get("pattern"),10);
+      if(!isNaN(pn) && pn>=1 && pn<=4) sub = pn;
+    }
+    bpm = Math.max(MIN_BPM, Math.min(MAX_BPM, bpm));
+  }
+
+  // ---- events --------------------------------------------------------------
+  playEl.addEventListener("click", function(){ ensureAudio(); toggle(); });
+  tapEl.addEventListener("click", function(){ ensureAudio(); tapTempo(); });
+  sigEl.addEventListener("change", function(){ setSig(parseInt(sigEl.value,10)); });
+  accentEl.addEventListener("click", function(){ setAccent(!accentOn); });
+  accentEl.addEventListener("keydown", function(e){ if(e.key===" "||e.key==="Enter"){ e.preventDefault(); setAccent(!accentOn); } });
+
+  $("minus").addEventListener("click", function(e){ e.stopPropagation(); setBpm(bpm-1); });
+  $("plus").addEventListener("click", function(e){ e.stopPropagation(); setBpm(bpm+1); });
+
+  bpmEl.addEventListener("change", function(){ setBpm(parseInt(bpmEl.value,10), true); bpmEl.value = String(bpm); });
+  bpmEl.addEventListener("blur", function(){ bpmEl.value = String(bpm); });
+
+  volEl.addEventListener("input", function(){
+    volume = volEl.value/100;
+    if(masterGain) masterGain.gain.setTargetAtTime(volume, audioCtx.currentTime, 0.02); // smooth, no zipper noise
+    save();
+  });
+
+  document.addEventListener("keydown", function(e){
+    if(e.target === bpmEl) return;
+    if(e.code === "Space"){ e.preventDefault(); ensureAudio(); toggle(); }
+    else if(e.key === "ArrowUp" || e.key === "ArrowRight"){ e.preventDefault(); setBpm(bpm + (e.shiftKey?10:1)); }
+    else if(e.key === "ArrowDown" || e.key === "ArrowLeft"){ e.preventDefault(); setBpm(bpm - (e.shiftKey?10:1)); }
+    else if(e.key.toLowerCase() === "t"){ ensureAudio(); tapTempo(); }
+  });
+
+  // iOS install hint (only when opened in Safari, not yet installed)
+  (function(){
+    var isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    var standalone = ("standalone" in navigator && navigator.standalone) ||
+                     (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
+    if(isIOS && !standalone) installEl.style.display = "block";
+  })();
+
+  // ---- init ----------------------------------------------------------------
+  load();
+  buildSig();
+  buildSubs();
+  buildDots();
+  setAccent(accentOn);
+  setSub(sub);
+  bpmEl.value = String(bpm);
+  termEl.textContent = tempoTerm(bpm);
+  trackEl.setAttribute("d", arcPath(R, A0, A1));
+  updateDial();
+  if(masterGain) masterGain.gain.value = volume;
+  volEl.value = String(Math.round(volume*100));
+  playEl.innerHTML = ICON_PLAY;
+
+  // ---- service worker ------------------------------------------------------
+  if("serviceWorker" in navigator){
+    window.addEventListener("load", function(){
+      navigator.serviceWorker.register("./sw.js").catch(function(){});
+    });
+  }
+})();
+</script>
+</body>
+</html>
