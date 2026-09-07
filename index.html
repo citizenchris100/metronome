@@ -100,11 +100,18 @@
   .counter.live{ color:var(--text); }
 
   /* subdivisions */
-  .subs{ display:flex; gap:8px; justify-content:center; }
-  .sub{ flex:1; max-width:84px; height:54px; background:var(--panel); border:1px solid var(--line); border-radius:12px;
+  .subs{ display:flex; gap:6px; justify-content:center; }
+  .sub{ flex:1; max-width:72px; height:54px; background:var(--panel); border:1px solid var(--line); border-radius:12px;
         color:var(--muted); display:flex; align-items:center; justify-content:center; cursor:pointer; }
   .sub.active{ color:var(--text); border-color:var(--accent); background:var(--panel-2); }
   .section-label{ font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); text-align:center; margin-bottom:-6px; }
+
+  /* swing ratio row: only shown while the Swing subdivision is selected */
+  .swingrow{ display:none; align-items:center; gap:12px; padding:0 4px; margin-top:-8px; }
+  .swingrow.on{ display:flex; }
+  .swing-label{ font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); flex:0 0 auto; }
+  .swing-read{ font-size:12px; color:var(--accent-soft); flex:0 0 104px; text-align:right;
+               font-variant-numeric:tabular-nums; }
 
   /* volume */
   .vol{ display:flex; align-items:center; gap:12px; padding:0 4px; }
@@ -167,6 +174,12 @@
     <div class="section-label">Subdivision</div>
     <div class="subs" id="subs"></div>
 
+    <div class="swingrow" id="swingrow">
+      <span class="swing-label">Swing</span>
+      <input type="range" id="swing" min="1" max="3" step="0.05" value="2" aria-label="Swing ratio">
+      <span class="swing-read" id="swingread">2.0 : 1</span>
+    </div>
+
     <div class="vol">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a9 9 0 0 1 0 14"/></svg>
       <input type="range" id="vol" min="0" max="100" value="90" aria-label="Volume">
@@ -205,15 +218,21 @@
     {label:"12/8 ♩.", beats:12, accents:["Off","3+3+3+3"]},
     {label:"13/8", beats:13, accents:["Off","On","3+3+3+2+2","4+4+3+2","4+3+4+2","3+4+2+4"]}
   ];
+  // n = ticks per beat. "Swing" is 2 ticks per beat like Eighths, but the two ticks are
+  // unequal: the off-beat sits SWING_RATIO:1 through the beat (2:1 = the triplet with its
+  // middle partial removed, which is what a swung eighth actually is).
   var SUBS = [
-    {n:1, name:"Quarter"}, {n:2, name:"Eighths"}, {n:3, name:"Triplet"}, {n:4, name:"Sixteenths"}
+    {n:1, name:"Quarter"}, {n:2, name:"Eighths"}, {n:3, name:"Triplet"}, {n:4, name:"Sixteenths"},
+    {n:2, swing:true, name:"Swing"}
   ];
+  var MIN_SWING = 1, MAX_SWING = 3; // 1:1 straight -> 2:1 triplet -> 3:1 dotted
   var MIN_BPM = 20, MAX_BPM = 300;
   var TERMS = [[40,"Largo"],[60,"Larghetto"],[66,"Adagio"],[76,"Andante"],[108,"Moderato"],
                [120,"Allegro"],[168,"Vivace"],[200,"Presto"],[1e9,"Prestissimo"]];
 
   // ---- state ---------------------------------------------------------------
   var bpm = 120, tsIndex = 2, sub = 1, accIndex = 1, volume = 0.9, playing = false;
+  var swingOn = false, swingRatio = 2.0, subIndex = 0; // subIndex = which SUBS button is lit
   var levels = []; // accent tier per beat for the current meter+accent: 0 normal, 1 group-start, 2 downbeat
 
   // ---- elements ------------------------------------------------------------
@@ -221,6 +240,7 @@
   var sigEl=$("sig"), accentEl=$("accent"), dotsEl=$("dots"),
       bpmEl=$("bpm"), termEl=$("term"), counterEl=$("counter"),
       playEl=$("play"), tapEl=$("tap"), subsEl=$("subs"), volEl=$("vol"),
+      swingRowEl=$("swingrow"), swingEl=$("swing"), swingReadEl=$("swingread"),
       dialWrap=$("dialwrap"), trackEl=$("track"), valueEl=$("value"), handleEl=$("handle"),
       installEl=$("install");
 
@@ -244,7 +264,15 @@
     if(audioCtx.state === "suspended"){ audioCtx.resume(); }
   }
   function ticksPerBar(){ return TIME_SIGS[tsIndex].beats * sub; }
-  function secondsPerTick(){ return (60 / bpm) / sub; }
+  // Where the swung off-beat lands inside its beat: ratio 2 -> 2/3 (the triplet point).
+  function swingPivot(){ return swingRatio / (1 + swingRatio); }
+  // Seconds from `tick` to the next one. Straight modes are even; swing alternates long/short.
+  function tickDuration(tick){
+    var beatSec = 60 / bpm;
+    if(!swingOn) return beatSec / sub;
+    return ((tick % 2) === 0) ? beatSec * swingPivot()          // beat -> off-beat (long)
+                              : beatSec * (1 - swingPivot());   // off-beat -> beat (short)
+  }
 
   function click(time, freq, gain, dur){
     var osc = audioCtx.createOscillator();
@@ -273,7 +301,7 @@
   function scheduler(){
     while(nextNoteTime < audioCtx.currentTime + SCHEDULE_AHEAD){
       scheduleTick(currentTick, nextNoteTime);
-      nextNoteTime += secondsPerTick();
+      nextNoteTime += tickDuration(currentTick);
       currentTick++;
       if(currentTick >= ticksPerBar()) currentTick = 0;
     }
@@ -415,38 +443,68 @@
   }
 
   // ---- subdivisions UI -----------------------------------------------------
-  function subGlyph(n){
+  // Draws the beamed group for a subdivision. Swing is drawn on the TRIPLET grid with the
+  // middle note left out, which is literally what the mode does.
+  function subGlyph(spec){
+    var swing = !!spec.swing, slots = swing ? 3 : spec.n;
     var W=48,H=30,pad=10,span=W-2*pad,stemTop=8,headY=23;
-    var xs = (n===1) ? [W/2] : [];
-    if(n>1){ for(var i=0;i<n;i++) xs.push(pad + span*i/(n-1)); }
+    var xs = (slots===1) ? [W/2] : [];
+    if(slots>1){ for(var i=0;i<slots;i++) xs.push(pad + span*i/(slots-1)); }
+    var heads = swing ? [xs[0], xs[2]] : xs;
     var p = [];
-    if(n>1){
-      p.push('<rect x="'+xs[0]+'" y="'+stemTop+'" width="'+(xs[n-1]-xs[0])+'" height="3" fill="currentColor"/>');
-      if(n>=4) p.push('<rect x="'+xs[0]+'" y="'+(stemTop+4.6)+'" width="'+(xs[n-1]-xs[0])+'" height="3" fill="currentColor"/>');
+    if(slots>1){
+      p.push('<rect x="'+xs[0]+'" y="'+stemTop+'" width="'+(xs[slots-1]-xs[0])+'" height="3" fill="currentColor"/>');
+      if(!swing && spec.n>=4) p.push('<rect x="'+xs[0]+'" y="'+(stemTop+4.6)+'" width="'+(xs[slots-1]-xs[0])+'" height="3" fill="currentColor"/>');
     }
-    for(var j=0;j<xs.length;j++){
-      p.push('<rect x="'+(xs[j]-0.9)+'" y="'+stemTop+'" width="1.8" height="'+(headY-stemTop)+'" fill="currentColor"/>');
-      p.push('<ellipse cx="'+xs[j]+'" cy="'+headY+'" rx="3.5" ry="2.6" fill="currentColor"/>');
+    for(var j=0;j<heads.length;j++){
+      p.push('<rect x="'+(heads[j]-0.9)+'" y="'+stemTop+'" width="1.8" height="'+(headY-stemTop)+'" fill="currentColor"/>');
+      p.push('<ellipse cx="'+heads[j]+'" cy="'+headY+'" rx="3.5" ry="2.6" fill="currentColor"/>');
     }
-    if(n===3) p.push('<text x="'+(W/2)+'" y="6" text-anchor="middle" font-size="9" font-weight="700" fill="currentColor">3</text>');
+    if(slots===3) p.push('<text x="'+(W/2)+'" y="6" text-anchor="middle" font-size="9" font-weight="700" fill="currentColor">3</text>');
     return '<svg viewBox="0 0 '+W+' '+H+'" width="42" height="26" aria-hidden="true">'+p.join("")+'</svg>';
   }
   function buildSubs(){
     subsEl.innerHTML = "";
-    SUBS.forEach(function(s){
+    SUBS.forEach(function(s, i){
       var b = document.createElement("button");
-      b.className = "sub" + (s.n===sub ? " active" : "");
-      b.innerHTML = subGlyph(s.n);
+      b.className = "sub" + (i===subIndex ? " active" : "");
+      b.innerHTML = subGlyph(s);
       b.title = s.name;
       b.setAttribute("aria-label", s.name);
-      b.addEventListener("click", function(){ setSub(s.n); });
+      b.addEventListener("click", function(){ setSub(i); });
       subsEl.appendChild(b);
     });
   }
-  function setSub(n){
-    sub = n;
+  // subIndexFor: the two n:2 entries (Eighths, Swing) are told apart by the swing flag.
+  function subIndexFor(n, swing){
+    for(var i=0;i<SUBS.length;i++){ if(SUBS[i].n===n && !!SUBS[i].swing===!!swing) return i; }
+    return 0;
+  }
+  function setSub(i){
+    if(!(i>=0 && i<SUBS.length)) i = 0;
+    subIndex = i;
+    sub = SUBS[i].n;
+    swingOn = !!SUBS[i].swing;
     var kids = subsEl.children;
-    for(var i=0;i<kids.length;i++) kids[i].classList.toggle("active", SUBS[i].n===n);
+    for(var k=0;k<kids.length;k++) kids[k].classList.toggle("active", k===i);
+    swingRowEl.classList.toggle("on", swingOn);
+    // Realign to the downbeat: mid-beat the tick phase is arbitrary, which would flip the
+    // swing long/short pairing until the bar wrapped.
+    if(playing){ currentTick = 0; queue.length = 0; }
+    save();
+  }
+  function swingWord(r){
+    if(r <= 1.05) return "straight";
+    if(r >= 1.95 && r <= 2.05) return "triplet";
+    if(r >= 2.9) return "dotted";
+    return "";
+  }
+  function setSwing(r){
+    r = Number(r);
+    if(isNaN(r)) return;
+    swingRatio = Math.max(MIN_SWING, Math.min(MAX_SWING, r));
+    var w = swingWord(swingRatio);
+    swingReadEl.textContent = swingRatio.toFixed(1) + " : 1" + (w ? "  " + w : "");
     save();
   }
 
@@ -541,7 +599,8 @@
   // ---- persistence ---------------------------------------------------------
   function save(){
     try{
-      localStorage.setItem("metro", JSON.stringify({bpm:bpm, ts:tsIndex, sub:sub, acc:accIndex, vol:volume}));
+      localStorage.setItem("metro", JSON.stringify({bpm:bpm, ts:tsIndex, sub:sub, acc:accIndex, vol:volume,
+                                                    sw:swingOn, swr:swingRatio}));
     }catch(e){}
   }
   function load(){
@@ -553,6 +612,8 @@
       if(typeof s.sub === "number") sub = s.sub;
       if(typeof s.acc === "number") accIndex = s.acc;
       if(typeof s.vol === "number") volume = s.vol;
+      if(typeof s.sw === "boolean") swingOn = s.sw;
+      if(typeof s.swr === "number") swingRatio = s.swr;
     }
     // URL params override saved state (so deep-links work)
     var q = new URLSearchParams(location.search);
@@ -562,14 +623,24 @@
       if(!isNaN(ti) && ti>=0 && ti<TIME_SIGS.length) tsIndex = ti;
     }
     if(q.has("pattern")){
-      var pn = parseInt(q.get("pattern"),10);
-      if(!isNaN(pn) && pn>=1 && pn<=4) sub = pn;
+      var pv = String(q.get("pattern")).toLowerCase();
+      if(pv === "swing" || pv === "5"){ sub = 2; swingOn = true; }
+      else {
+        var pn = parseInt(pv,10);
+        if(!isNaN(pn) && pn>=1 && pn<=4){ sub = pn; swingOn = false; }
+      }
+    }
+    if(q.has("swing")){
+      var sv = parseFloat(q.get("swing"));
+      if(!isNaN(sv)) swingRatio = sv;
     }
     if(q.has("accent")){
       var an = parseInt(q.get("accent"),10);
       if(!isNaN(an) && an>=0) accIndex = an;
     }
     bpm = Math.max(MIN_BPM, Math.min(MAX_BPM, bpm));
+    swingRatio = Math.max(MIN_SWING, Math.min(MAX_SWING, swingRatio));
+    subIndex = subIndexFor(sub, swingOn);
     // clamp accent to whatever this meter actually offers
     if(accIndex < 0 || accIndex >= TIME_SIGS[tsIndex].accents.length) accIndex = defaultAccent(tsIndex);
   }
@@ -585,6 +656,8 @@
 
   bpmEl.addEventListener("change", function(){ setBpm(parseInt(bpmEl.value,10), true); bpmEl.value = String(bpm); });
   bpmEl.addEventListener("blur", function(){ bpmEl.value = String(bpm); });
+
+  swingEl.addEventListener("input", function(){ setSwing(swingEl.value); });
 
   volEl.addEventListener("input", function(){
     volume = volEl.value/100;
@@ -614,7 +687,9 @@
   buildAccent();
   buildSubs();
   buildDots();
-  setSub(sub);
+  setSub(subIndex);
+  swingEl.value = String(swingRatio);
+  setSwing(swingRatio);
   bpmEl.value = String(bpm);
   termEl.textContent = tempoTerm(bpm);
   trackEl.setAttribute("d", arcPath(R, A0, A1));

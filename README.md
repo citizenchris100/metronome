@@ -11,12 +11,15 @@ A clean, fully-offline metronome you can install to your phone or iPad home scre
 - Meter-aware accents: off, downbeat-only, or metric grouping presets per meter
   (e.g. 7/8 as 3+2+2, 2+2+3, 4+3, …) with a 3-tier click (downbeat ▸ group ▸ beat)
 - Beat-dot indicator that shows the grouping, plus a live beat counter
-- Subdivisions: quarter, eighths, triplet, sixteenths
+- Subdivisions: quarter, eighths, triplet, sixteenths, and **swing** — a swung eighth
+  is the triplet with its middle note removed, and a Swing slider dials the feel from
+  1:1 (straight) through 2:1 (triplet, the default) to 3:1 (dotted/hard shuffle)
 - Sample-accurate timing via a Web Audio lookahead scheduler (synthesized clicks —
   no audio files, so it works with zero network)
 - Keeps the screen awake while playing; remembers your last settings on the device
-- Deep links: `?tempo=120&timeSignature=2&pattern=1`
-  (`timeSignature` is a 0-based index into the list; `pattern` is the subdivision 1–4)
+- Deep links: `?tempo=120&timeSignature=2&pattern=1&accent=1`
+  (`timeSignature` is a 0-based index into the list; `pattern` is the subdivision 1–4
+  or `swing`; `swing=2` sets the swing ratio 1–3)
 
 ## Install on iPhone / iPad
 
